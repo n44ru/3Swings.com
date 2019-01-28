@@ -1,0 +1,86 @@
+    /*
+     * Business Book Now
+     *
+     * @Route("/user/services/{id}/book/{_locale}", name="services_book")
+     * defaults={"_locale"="en"}, requirements={"_locale"="(es|en)"}
+     * @Method({"GET", "POST"})
+     */
+    public function bookAction($id)
+    {
+        if ($this->getUser())
+            $userid = $this->getUser()->getId();
+        else return $this->redirectToRoute('404');
+        $em = $this->getDoctrine()->getManager();
+        $serv = $em->getRepository('AdminBundle:Bussines')->find($id);
+        $user = $em->getRepository('AdminBundle:User')->find($userid);
+
+        // Check for Cheater
+        $query = $em->createQuery('SELECT p FROM AdminBundle:LinkedUsers p WHERE p.userid = ?1 and p.bussinesid = ?2');
+        $query->setParameter(1, $userid);
+        $query->setParameter(2, $serv->getId());
+        $linked = $query->getResult();
+
+        if ($linked != null) {
+            // Mandar nivel y descuento.
+            $query = $em->createQuery('SELECT p FROM AdminBundle:Userdata p WHERE p.userid = ?1');
+            $query->setParameter(1, $userid);
+            $userdata = $query->getResult();
+            //
+            $nivel = $userdata[0]->getLevel();
+            $descuento = $userdata[0]->getPlanid()->getDescuento();
+            //
+            $totalphp = ($serv->getDescuento() * $descuento) / 100;
+            $dinerophp = ($serv->getPrice() * $totalphp) / 100;
+            //
+            // Send the log the the owner
+            $logs = 'The User ' . $this->getUser()->getUsername() . ' book the service ' . $serv->getName() . '. Contact this user via e-mail:
+        ' . $this->getUser()->getEmail() . ' or via phone: ' . $this->getUser()->getPhonenumber() .
+                '. This user has level ' . $nivel . ' and get ' . $totalphp . '% ($' . $dinerophp . ') discount from your service.';
+            //Send the mail to the service owner.
+            //mail($serv->getUserid()->getUsername(),'3Swings.com Reservation Request',$logs);
+            //
+            $this->get('app.mailsender')->send_mail($serv->getUserid()->getUsername(), '3Swings.com Service Book', $logs, 'noreply@3swings.com');
+            $this->get('app.setLogs')->setuserlogs($logs, $serv->getUserid()->getId());
+        }
+        return $this->redirectToRoute('business_details', array('id' => $serv->getId()));
+    }
+
+    /*
+     * Business UnLink User
+     *
+     * @Route("/user/services/{id}/unlink/{_locale}", name="services_unlink")
+     * defaults={"_locale"="en"}, requirements={"_locale"="(es|en)"}
+     * @Method({"GET", "POST"})
+     */
+    public function ulinkAction($id)
+    {
+        if ($this->getUser())
+            $userid = $this->getUser()->getId();
+        else return $this->redirectToRoute('404');
+        $em = $this->getDoctrine()->getManager();
+        $serv = $em->getRepository('AdminBundle:Bussines')->find($id);
+        // Set Linked User to 0.
+        $query = $em->createQuery('SELECT p FROM AdminBundle:LinkedUsers p WHERE p.userid = ?1 AND p.bussinesid = ?2');
+        $query->setParameter(1, $userid);
+        $query->setParameter(2, $id);
+        $linked = $query->getResult();
+        $linked[0]->setLinked(0);
+        $em->persist($linked[0]);
+        $em->flush();
+        // Remove the statistic 3 to the User
+        $query = $em->createQuery('SELECT p FROM AdminBundle:Userdata p WHERE p.userid = ?1');
+        $query->setParameter(1, $userid);
+        $userdata = $query->getResult();
+        $stats3 = $userdata[0]->getStats3();
+        $userdata[0]->setStats3($stats3 - 1);
+        $em->persist($userdata[0]);
+        $em->flush();
+        // Send the log the the owner
+        $logs = 'The User ' . $this->getUser()->getUsername() . ' leave your ' . $serv->getName();
+        //mail($serv->getUserid()->getUsername(),'3Swings.com User leave your service',$logs);
+        //
+        $this->get('app.mailsender')->send_mail($serv->getUserid()->getUsername(), '3Swings.com User leave your service', $logs, 'noreply@3swings.com');
+        //
+        $this->get('app.setLogs')->setuserlogs($logs, $serv->getUserid()->getId());
+        return $this->redirectToRoute('homepage');
+    }
